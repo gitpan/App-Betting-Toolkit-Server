@@ -4,11 +4,10 @@ use 5.006;
 use strict;
 use warnings;
 
-use JSON;
 use Data::Dumper;
 use Try::Tiny;
 
-use POE qw(Component::Server::TCP);
+use POE qw(Component::Server::TCP Filter::JSON Filter::Stackable Filter::Line );
 
 use App::Betting::Toolkit::GameState;
 
@@ -22,11 +21,11 @@ App::Betting::Toolkit::Server - Recieve and process  App::Betting::Toolkit::Game
 
 =head1 VERSION
 
-Version 0.01
+Version 0.011
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.011';
 
 =head1 SYNOPSIS
 
@@ -166,15 +165,20 @@ sub new {
 
 	warn "Starting server, port:",$args->{port}," alias:",$args->{alias};
 
+	my $filter = POE::Filter::Stackable->new();
+	$filter->push(
+		POE::Filter::JSON->new( delimiter => 0 ),
+		POE::Filter::Line->new(),
+	);
+
 	bless $self, $class;
 
 	$self->{session} = POE::Component::Server::TCP->new(
 		Alias		=> $args->{alias},
 		Port		=> $args->{port},
-		ClientFilter	=> "POE::Filter::Line",
+		ClientFilter	=> $filter,
 		ClientConnected => sub { 
 			my ($heap) = $_[HEAP];
-			$heap->{json} = JSON->new->pretty(0)->allow_nonref;
 			
 		},
 		ClientInput => sub {
@@ -193,7 +197,7 @@ sub new {
 
 			# Check the packet has a valid query type
 			if (!defined $req->{query}) {
-				my $error = $heap->{json}->encode({ error=>1, msg=>"Invalid query missing 'query'" });
+				my $error = { error=>1, msg=>"Invalid query missing 'query'" };
 				$heap->{client}->put($error);
 				return;
 			}
@@ -233,7 +237,7 @@ sub new {
 
 				$heap->{auth} = 1 if (!$error->{error});
 
-				$heap->{client}->put($heap->{json}->encode($error));
+				$heap->{client}->put($error);
 
 				$kernel->yield('send_to_parent',$req);
 	
@@ -250,6 +254,5 @@ sub new {
 
 	return $self;
 }
-
 
 1; # End of App::Betting::Toolkit::Server
