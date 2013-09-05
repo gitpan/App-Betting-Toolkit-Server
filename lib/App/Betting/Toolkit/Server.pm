@@ -4,12 +4,10 @@ use 5.006;
 use strict;
 use warnings;
 
-$ENV{JSON_ANY_ORDER} = 'JSON XS';
-
 use Data::Dumper;
 use Try::Tiny;
 
-use POE qw(Component::Server::TCP Filter::JSON Filter::Line Filter::Reference);
+use POE qw(Component::Server::TCP Filter::Reference);
 
 =head1 NAME
 
@@ -21,11 +19,11 @@ App::Betting::Toolkit::Server - Recieve and process  App::Betting::Toolkit::Game
 
 =head1 VERSION
 
-Version 0.015
+Version 0.016
 
 =cut
 
-our $VERSION = '0.015';
+our $VERSION = '0.016';
 
 =head1 SYNOPSIS
 
@@ -171,18 +169,16 @@ sub new {
 	$self->{session} = POE::Component::Server::TCP->new(
 		Alias		=> $args->{alias},
 		Port		=> $args->{port},
-		ClientFilter	=> POE::Filter::Reference->new(),
+		ClientFilter	=> POE::Filter::Reference->new("Storable"),
 		ClientConnected => sub { 
 			my ($kernel) = $_[KERNEL];
 			$kernel->yield('debug','Client connected');
 		},
 		ClientInput => sub {
-			my ($kernel, $session, $heap, $raw) = @_[KERNEL, SESSION, HEAP, ARG0];
+			my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
 
 			# initilize $req
-			my $req = { error=>1, gamestate=>{  } };
-
-			$req = $raw;
+			my $req = { error=>1, gamestate=>{  } } if (!$req);
 
 			$kernel->post($args->{parent},'debug',Dumper($raw,$req));
 
