@@ -9,7 +9,7 @@ $ENV{JSON_ANY_ORDER} = 'JSON XS';
 use Data::Dumper;
 use Try::Tiny;
 
-use POE qw(Component::Server::TCP Filter::JSON Filter::Line );
+use POE qw(Component::Server::TCP Filter::JSON Filter::Line Filter::Reference);
 
 =head1 NAME
 
@@ -21,11 +21,11 @@ App::Betting::Toolkit::Server - Recieve and process  App::Betting::Toolkit::Game
 
 =head1 VERSION
 
-Version 0.012
+Version 0.015
 
 =cut
 
-our $VERSION = '0.012';
+our $VERSION = '0.015';
 
 =head1 SYNOPSIS
 
@@ -164,20 +164,17 @@ sub new {
 	} 
 
 	$args->{alias} = 'betserver' if (!$args->{alias});
+	$args->{debug_handler} = 'debug_server' if (!$args->{debug_handler});
 
-	warn "Starting server, port:",$args->{port}," alias:",$args->{alias};
-
-	my $filter = POE::Filter::JSON->new( json_any => { allow_nonref => 1 } );
-
-	bless $self, $class;
+	POE::Kernel->post($args->{parent},$args->{debug_handler},"Starting server, port:",$args->{port}," alias:",$args->{alias});
 
 	$self->{session} = POE::Component::Server::TCP->new(
 		Alias		=> $args->{alias},
 		Port		=> $args->{port},
-		ClientFilter	=> $filter,
+		ClientFilter	=> POE::Filter::Reference->new(),
 		ClientConnected => sub { 
-			my ($heap) = $_[HEAP];
-			
+			my ($kernel) = $_[KERNEL];
+			$kernel->yield('debug','Client connected');
 		},
 		ClientInput => sub {
 			my ($kernel, $session, $heap, $raw) = @_[KERNEL, SESSION, HEAP, ARG0];
@@ -185,21 +182,24 @@ sub new {
 			# initilize $req
 			my $req = { error=>1, gamestate=>{  } };
 
-			warn Dumper($raw);
-			warn "x";
-			$req = $filter->get( $raw )->[0];
-			warn "y";
+			$req = $raw;
+
+			$kernel->post($args->{parent},'debug',Dumper($raw,$req));
 
 			# Check the packet has a valid query type
 			if (!defined $req->{query}) {
-				my $error = $filter->put([ { error=>1, msg=>"Invalid query missing 'query'" } ]);
-				$heap->{client}->put( $error );
+				$heap->{client}->put({ error=>1, msg=>"Invalid query missing 'query'" });
 				return;
 			}
 
 			$kernel->yield('handle_'.lc($req->{query}),$req);
 		},
 		InlineStates => {
+			debug		=>	sub {
+				my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
+
+				$kernel->post($args->{parent},$args->{debug_handler},$req);
+			},
 			send_to_parent  =>      sub { 
 				my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
 
@@ -232,16 +232,9 @@ sub new {
 
 				$heap->{auth} = 1 if (!$error->{error});
 
-				$heap->{client}->put( $filter->put( [ $error ] ) );
+				$heap->{client}->put( $error );
 
 				$kernel->yield('send_to_parent',$req);
-	
-#				# Validate the request
-#				if (! App::Betting::Toolkit::GameState->loadable($req->{gamestate}) ) {
-#					$kernel->yield("shutdown");
-#					return;
-#				}
-#				my $gamestate = App::Betting::Toolkit::GameState->load($req->{gamestate});
 			},
 			handle_gamepacket => sub {
 				my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
@@ -253,11 +246,13 @@ sub new {
 					my $pkt = $req;
 					$req->{method} = 'update';
 					$req->{data} = $cache->{gamepacket};
-					$heap->{client}->put( $filter->put( [ $req ]) );
+					$heap->{client}->put( $req );
 				}
 			},
 			handle_matchdata => sub { 
 				my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
+
+				$kernel->yield('send_to_parent',$req);
 			},
 			cache_send	=> sub {
 				my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
@@ -266,10 +261,12 @@ sub new {
 
 				$cache->{$key} = $req->{data};
 
-				$heap->{client}->put( $filter->put( [ $req ]) );
+				$heap->{client}->put( $req );
 			},
 		}
 	);
+
+	bless $self, $class;
 
 	return $self;
 }

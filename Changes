@@ -14,3 +14,7 @@ Revision history for App-Betting-Toolkit-Server
 
 0.014	05-05-2013
 	Minor code update for matchdata handler.
+
+0.015	05-05-2013
+	Send all debugging to the debug handler on the parent instead.
+	Totally removed Filter::JSON and swapped it for filter::Reference
