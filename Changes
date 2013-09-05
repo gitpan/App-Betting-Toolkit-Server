@@ -6,3 +6,11 @@ Revision history for App-Betting-Toolkit-Server
 0.011	23-08-2013
 	Swapped over from encoding JSON ourself to Filter::JSON
 
+0.012	23-08-2013
+	Bug fix for syntax for Filter::JSON
+
+0.013	23-08-2013
+	Multiple code fixs, documentation updated.
+
+0.014	05-05-2013
+	Minor code update for matchdata handler.

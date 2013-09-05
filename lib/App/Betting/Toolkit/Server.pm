@@ -4,12 +4,12 @@ use 5.006;
 use strict;
 use warnings;
 
+$ENV{JSON_ANY_ORDER} = 'JSON XS';
+
 use Data::Dumper;
 use Try::Tiny;
 
-use POE qw(Component::Server::TCP Filter::JSON Filter::Stackable Filter::Line );
-
-use App::Betting::Toolkit::GameState;
+use POE qw(Component::Server::TCP Filter::JSON Filter::Line );
 
 =head1 NAME
 
@@ -21,11 +21,11 @@ App::Betting::Toolkit::Server - Recieve and process  App::Betting::Toolkit::Game
 
 =head1 VERSION
 
-Version 0.011
+Version 0.012
 
 =cut
 
-our $VERSION = '0.011';
+our $VERSION = '0.012';
 
 =head1 SYNOPSIS
 
@@ -151,6 +151,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 sub new {
 	my $class = shift;
 	my $args  = shift;
+
+	my $cache = {};
 	my $self;
 
 	die "Need to have parent passed" if (!$args->{parent});
@@ -165,11 +167,7 @@ sub new {
 
 	warn "Starting server, port:",$args->{port}," alias:",$args->{alias};
 
-	my $filter = POE::Filter::Stackable->new();
-	$filter->push(
-		POE::Filter::JSON->new( delimiter => 0 ),
-		POE::Filter::Line->new(),
-	);
+	my $filter = POE::Filter::JSON->new( json_any => { allow_nonref => 1 } );
 
 	bless $self, $class;
 
@@ -187,18 +185,15 @@ sub new {
 			# initilize $req
 			my $req = { error=>1, gamestate=>{  } };
 
-			eval { decode_json($raw) };
-			if ($@) {
-				$kernel->yield('shutdown');
-				return;
-			}
-
-			$req = $heap->{json}->decode($raw);
+			warn Dumper($raw);
+			warn "x";
+			$req = $filter->get( $raw )->[0];
+			warn "y";
 
 			# Check the packet has a valid query type
 			if (!defined $req->{query}) {
-				my $error = { error=>1, msg=>"Invalid query missing 'query'" };
-				$heap->{client}->put($error);
+				my $error = $filter->put([ { error=>1, msg=>"Invalid query missing 'query'" } ]);
+				$heap->{client}->put( $error );
 				return;
 			}
 
@@ -237,7 +232,7 @@ sub new {
 
 				$heap->{auth} = 1 if (!$error->{error});
 
-				$heap->{client}->put($error);
+				$heap->{client}->put( $filter->put( [ $error ] ) );
 
 				$kernel->yield('send_to_parent',$req);
 	
@@ -247,8 +242,32 @@ sub new {
 #					return;
 #				}
 #				my $gamestate = App::Betting::Toolkit::GameState->load($req->{gamestate});
-#				$kernel->post( $self->{parent}, $self->{handle}, $gamestate );
-			}
+			},
+			handle_gamepacket => sub {
+				my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
+
+				if (!$cache->{gamepacket}) {
+					$req->{client} = $session->ID;
+					$kernel->yield('send_to_parent',$req);
+				} else {
+					my $pkt = $req;
+					$req->{method} = 'update';
+					$req->{data} = $cache->{gamepacket};
+					$heap->{client}->put( $filter->put( [ $req ]) );
+				}
+			},
+			handle_matchdata => sub { 
+				my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
+			},
+			cache_send	=> sub {
+				my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
+
+				my $key = $req->{query};
+
+				$cache->{$key} = $req->{data};
+
+				$heap->{client}->put( $filter->put( [ $req ]) );
+			},
 		}
 	);
 
