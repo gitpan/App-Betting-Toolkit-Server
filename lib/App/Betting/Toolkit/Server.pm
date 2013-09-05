@@ -19,11 +19,11 @@ App::Betting::Toolkit::Server - Recieve and process  App::Betting::Toolkit::Game
 
 =head1 VERSION
 
-Version 0.016
+Version 0.017
 
 =cut
 
-our $VERSION = '0.016';
+our $VERSION = '0.017';
 
 =head1 SYNOPSIS
 
@@ -164,7 +164,7 @@ sub new {
 	$args->{alias} = 'betserver' if (!$args->{alias});
 	$args->{debug_handler} = 'debug_server' if (!$args->{debug_handler});
 
-	POE::Kernel->post($args->{parent},$args->{debug_handler},"Starting server, port:",$args->{port}," alias:",$args->{alias});
+	POE::Kernel->post($args->{parent},$args->{debug_handler},"Starting server, port:".$args->{port}." alias:".$args->{alias});
 
 	$self->{session} = POE::Component::Server::TCP->new(
 		Alias		=> $args->{alias},
@@ -178,9 +178,9 @@ sub new {
 			my ($kernel, $session, $heap, $req) = @_[KERNEL, SESSION, HEAP, ARG0];
 
 			# initilize $req
-			my $req = { error=>1, gamestate=>{  } } if (!$req);
+			$req = { error=>1, gamestate=>{  } } if (!$req);
 
-			$kernel->post($args->{parent},'debug',Dumper($raw,$req));
+			$kernel->post($args->{parent},'debug',Dumper($req));
 
 			# Check the packet has a valid query type
 			if (!defined $req->{query}) {
